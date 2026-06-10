@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Lego F1 Racing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Incluindo Tone.js para o áudio sintetizado -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Righteous&display=swap');
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Righteous', cursive;
+            background-color: #87CEEB; /* Azul Céu padrão caso 3D falhe */
+            touch-action: none; /* Previne scroll acidental no mobile */
+        }
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .ui-layer {
+            position: absolute;
+            z-index: 10;
+        }
+        .text-stroke {
+            -webkit-text-stroke: 1px black;
+        }
+        /* Efeito de pulsação para o Buff de Invencibilidade */
+        @keyframes pulse {
+            0% { transform: scale(1); filter: brightness(1); }
+            50% { transform: scale(1.1); filter: brightness(1.5); }
+            100% { transform: scale(1); filter: brightness(1); }
+        }
+        .buff-active {
+            animation: pulse 0.5s infinite;
+        }
+    </style>
+</head>
+<body class="bg-blue-300 select-none">
+    
+    <!-- Canvas do Three.js -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD: Pontos, Velocidade e Buff -->
+    <div id="hud" class="ui-layer top-0 left-0 w-full p-4 flex justify-between items-start pointer-events-none">
+        <div>
+            <h1 id="score-display" class="text-3xl md:text-5xl text-white font-bold drop-shadow-lg text-stroke">PONTOS: 0</h1>
+            <h2 id="buff-display" class="hidden text-xl md:text-2xl mt-1 font-bold text-stroke drop-shadow-md transition-all"></h2>
+        </div>
+        <h2 id="speed-display" class="text-2xl md:text-4xl text-yellow-300 font-bold drop-shadow-lg text-stroke">0 KM/H</h2>
+    </div>
+
+    <!-- Tela Inicial -->
+    <div id="start-screen" class="ui-layer inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+        <h1 class="text-6xl md:text-8xl text-red-500 font-bold mb-4 drop-shadow-[0_5px_5px_rgba(0,0,0,1)] text-stroke tracking-wider text-center">LEGO F1<br><span class="text-yellow-400 text-4xl md:text-6xl">RACING</span></h1>
+        <p class="text-white text-lg md:text-2xl mb-8 max-w-md text-center drop-shadow-md">Desvie dos carros, pegue poderes e sinta o vento no rosto!</p>
+        
+        <!-- Seleção de Cor -->
+        <div class="mb-8 flex flex-col items-center">
+            <p class="text-white text-sm font-bold mb-2 text-stroke tracking-widest">ESCOLHA SUA EQUIPE:</p>
+            <div class="flex gap-3" id="color-picker">
+                <button onclick="selectColor('red', this)" class="w-12 h-12 bg-[#cc0000] rounded border-4 border-white shadow-lg transform scale-110 transition-all"></button>
+                <button onclick="selectColor('blue', this)" class="w-12 h-12 bg-[#0055bf] rounded border-4 border-transparent shadow-lg transform hover:scale-110 transition-all"></button>
+                <button onclick="selectColor('green', this)" class="w-12 h-12 bg-[#237841] rounded border-4 border-transparent shadow-lg transform hover:scale-110 transition-all"></button>
+                <button onclick="selectColor('yellow', this)" class="w-12 h-12 bg-[#f2cd37] rounded border-4 border-transparent shadow-lg transform hover:scale-110 transition-all"></button>
+                <button onclick="selectColor('white', this)" class="w-12 h-12 bg-[#ffffff] rounded border-4 border-transparent shadow-lg transform hover:scale-110 transition-all"></button>
+            </div>
+        </div>
+
+        <div class="flex gap-4 text-white text-sm md:text-base mb-8 bg-black/50 p-4 rounded-xl">
+            <div class="flex flex-col items-center"><div class="w-8 h-8 bg-blue-500 rounded border-2 border-white mb-1"></div><span>NITRO</span></div>
+            <div class="flex flex-col items-center"><div class="w-8 h-8 bg-yellow-400 rounded border-2 border-white mb-1"></div><span>INVENCÍVEL</span></div>
+            <div class="flex flex-col items-center"><div class="w-8 h-8 bg-gray-800 rounded border-2 border-white mb-1"></div><span>ÓLEO</span></div>
+        </div>
+        <button onclick="startGame()" class="px-8 py-4 bg-green-500 hover:bg-green-400 text-white text-3xl rounded-xl border-b-8 border-green-700 active:border-b-0 active:translate-y-2 transition-all font-bold shadow-2xl">
+            JOGAR
+        </button>
+        <p class="text-white mt-6 text-sm text-center">Controles: Setas / WASD<br>No celular: Botões na tela</p>
+    </div>
+
+    <!-- Tela de Game Over -->
+    <div id="game-over-screen" class="ui-layer inset-0 flex flex-col items-center justify-center bg-red-900/80 backdrop-blur-sm hidden">
+        <h1 class="text-6xl md:text-8xl text-white font-bold mb-2 drop-shadow-lg text-stroke">BATIDA!</h1>
+        <h2 id="final-score" class="text-4xl text-yellow-300 font-bold mb-8 drop-shadow-md text-stroke">PONTOS: 0</h2>
+        <button onclick="startGame()" class="px-8 py-4 bg-yellow-500 hover:bg-yellow-400 text-black text-3xl rounded-xl border-b-8 border-yellow-700 active:border-b-0 active:translate-y-2 transition-all font-bold shadow-2xl">
+            TENTAR NOVAMENTE
+        </button>
+    </div>
+
+    <!-- Controles Mobile -->
+    <div id="mobile-controls" class="ui-layer bottom-4 left-0 w-full px-4 flex justify-between hidden">
+        <div class="flex gap-2">
+            <button id="btn-left" class="w-16 h-16 bg-white/50 backdrop-blur rounded-full text-black text-3xl font-bold flex items-center justify-center shadow-lg active:bg-white/80 border-2 border-black/20">◁</button>
+            <button id="btn-right" class="w-16 h-16 bg-white/50 backdrop-blur rounded-full text-black text-3xl font-bold flex items-center justify-center shadow-lg active:bg-white/80 border-2 border-black/20">▷</button>
+        </div>
+        <div class="flex gap-2">
+            <button id="btn-brake" class="w-16 h-16 bg-red-500/80 backdrop-blur rounded-full text-white text-3xl font-bold flex items-center justify-center shadow-lg active:bg-red-400 border-2 border-black/20">B</button>
+            <button id="btn-accel" class="w-16 h-16 bg-green-500/80 backdrop-blur rounded-full text-white text-3xl font-bold flex items-center justify-center shadow-lg active:bg-green-400 border-2 border-black/20">A</button>
+        </div>
+    </div>
+
+    <script>
+        // ---------------- VARIÁVEIS GLOBAIS ----------------
+        let scene, camera, renderer;
+        let playerCar;
+        let obstaclesGroup = new THREE.Group();
+        let itemsGroup = new THREE.Group();
+        let trackGroup = new THREE.Group();
+        let sceneryGroup = new THREE.Group();
+        let particlesGroup = new THREE.Group();
+        
+        let animationId;
+        let gameActive = false;
+        
+        // Sistema de Jogo
+        let score = 0;
+        let speed = 0;
+        let cruiseSpeed = 0.4;
+        let targetSpeed = 0.4;
+        const maxSpeed = 0.8;
+        const minSpeed = 0.2;
+        let carX = 0;
+        const roadLimit = 4;
+        
+        // Variáveis de Curva
+        let curveTimer = 0;
+        let currentCurve = 0; // -1 Esquerda, 0 Reta, 1 Direita
+        let targetCurve = 0;
+        let cameraOffset = 0;
+        
+        // Sistema de Buffs
+        let activeBuff = null; // 'boost', 'invincible', 'slow'
+        let buffTimer = 0;
+        let playerSelectedColor = 'red'; // Cor padrão do jogador
+        
+        // Cores Lego
+        const COLORS = {
+            red: 0xcc0000,
+            blue: 0x0055bf,
+            yellow: 0xf2cd37,
+            green: 0x237841,
+            white: 0xffffff,
+            black: 0x111111,
+            grey: 0xa0a5a9,
+            road: 0x333333,
+            grass: 0x4CAF50
+        };
+
+        // Materiais reutilizáveis
+        const mats = {
+            red: new THREE.MeshStandardMaterial({ color: COLORS.red, roughness: 0.2, metalness: 0.1 }),
+            blue: new THREE.MeshStandardMaterial({ color: COLORS.blue, roughness: 0.2, metalness: 0.1 }),
+            yellow: new THREE.MeshStandardMaterial({ color: COLORS.yellow, roughness: 0.2, metalness: 0.1 }),
+            green: new THREE.MeshStandardMaterial({ color: COLORS.green, roughness: 0.2, metalness: 0.1 }),
+            white: new THREE.MeshStandardMaterial({ color: COLORS.white, roughness: 0.2, metalness: 0.1 }),
+            black: new THREE.MeshStandardMaterial({ color: COLORS.black, roughness: 0.2, metalness: 0.1 }),
+            grey: new THREE.MeshStandardMaterial({ color: COLORS.grey, roughness: 0.2, metalness: 0.1 })
+        };
+
+        // ---------------- ÁUDIO (Tone.js) ----------------
+        let engineSynth, sfxSynth, noiseSynth;
+        let isAudioReady = false;
+
+        // Função de seleção de cor na interface
+        function selectColor(color, btn) {
+            playerSelectedColor = color;
+            // Atualiza a borda dos botões para mostrar qual está selecionado
+            const buttons = document.getElementById('color-picker').children;
+            for(let b of buttons) {
+                b.classList.remove('border-white', 'scale-110');
+                b.classList.add('border-transparent');
+            }
+            btn.classList.remove('border-transparent');
+            btn.classList.add('border-white', 'scale-110');
+        }
+
+        function initAudio() {
+            if (isAudioReady) return;
+            try {
+                // Motor Contínuo
+                engineSynth = new Tone.FMSynth({
+                    harmonicity: 1.5,
+                    modulationIndex: 3,
+                    oscillator: { type: "sawtooth" },
+                    modulation: { type: "square" },
+                    envelope: { attack: 0.2, decay: 0.1, sustain: 1, release: 0.5 }
+                }).toDestination();
+                engineSynth.volume.value = -15;
+
+                // Efeitos (Poderes e UI)
+                sfxSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "triangle" },
+                    envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
+                }).toDestination();
+                sfxSynth.volume.value = -8;
+
+                // Ruído (Explosões / Batidas)
+                noiseSynth = new Tone.NoiseSynth({
+                    noise: { type: "brown" },
+                    envelope: { attack: 0.01, decay: 0.4, sustain: 0.1, release: 0.5 }
+                }).toDestination();
+                noiseSynth.volume.value = -5;
+
+                isAudioReady = true;
+            } catch (e) {
+                console.warn("Não foi possível iniciar o áudio: ", e);
+            }
+        }
+
+        // ---------------- FUNÇÕES DE CONSTRUÇÃO (Visual Lego) ----------------
+        
+        // Cria um bloco de lego com pinos em cima
+        function createLegoBrick(width, height, depth, material, studsX, studsZ) {
+            const group = new THREE.Group();
+            
+            // Base do bloco
+            const geo = new THREE.BoxGeometry(width, height, depth);
+            const mesh = new THREE.Mesh(geo, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            group.add(mesh);
+            
+            // Pinos (Studs) no topo
+            const studGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.1, 8);
+            const startX = -(width / 2) + (width / (studsX * 2));
+            const startZ = -(depth / 2) + (depth / (studsZ * 2));
+            
+            for(let i=0; i<studsX; i++) {
+                for(let j=0; j<studsZ; j++) {
+                    const stud = new THREE.Mesh(studGeo, material);
+                    stud.position.set(
+                        startX + i * (width/studsX),
+                        height/2 + 0.05,
+                        startZ + j * (depth/studsZ)
+                    );
+                    stud.castShadow = true;
+                    group.add(stud);
+                }
+            }
+            return group;
+        }
+
+        function buildF1Car(primaryMat) {
+            const carGroup = new THREE.Group();
+
+            // Chassi Principal
+            const chassi = createLegoBrick(1.2, 0.4, 3, primaryMat, 2, 6);
+            chassi.position.y = 0.3;
+            carGroup.add(chassi);
+
+            // Bico (Frente)
+            const bico = createLegoBrick(0.8, 0.3, 1.5, primaryMat, 2, 3);
+            bico.position.set(0, 0.25, -2.25);
+            carGroup.add(bico);
+
+            // Aerofólio Traseiro
+            const suporteAero = createLegoBrick(0.4, 0.6, 0.4, mats.black, 1, 1);
+            suporteAero.position.set(0, 0.8, 1.3);
+            carGroup.add(suporteAero);
+            
+            const aeroT = createLegoBrick(2, 0.2, 0.6, primaryMat, 4, 1);
+            aeroT.position.set(0, 1.2, 1.3);
+            carGroup.add(aeroT);
+
+            // Aerofólio Dianteiro
+            const aeroD = createLegoBrick(1.8, 0.2, 0.5, primaryMat, 4, 1);
+            aeroD.position.set(0, 0.2, -3);
+            carGroup.add(aeroD);
+
+            // Cockpit e Piloto (Capacete branco)
+            const cockpit = createLegoBrick(0.8, 0.4, 1.2, mats.black, 2, 2);
+            cockpit.position.set(0, 0.7, 0);
+            carGroup.add(cockpit);
+            
+            const capacete = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), mats.white);
+            capacete.position.set(0, 1.1, -0.2);
+            carGroup.add(capacete);
+
+            // Rodas
+            const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
+            wheelGeo.rotateZ(Math.PI / 2);
+            const positions = [
+                [-0.8, 0.4, -2], [0.8, 0.4, -2], // Dianteiras
+                [-0.9, 0.4, 1],  [0.9, 0.4, 1]   // Traseiras
+            ];
+            
+            positions.forEach(pos => {
+                const wheel = new THREE.Mesh(wheelGeo, mats.black);
+                wheel.position.set(...pos);
+                wheel.castShadow = true;
+                
+                // Calota
+                const calota = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.32, 8), mats.grey);
+                calota.rotation.z = Math.PI / 2;
+                calota.position.set(pos[0], pos[1], pos[2]);
+                
+                carGroup.add(wheel);
+                carGroup.add(calota);
+            });
+
+            return carGroup;
+        }
+
+        function buildTrack() {
+            // Remove pista antiga
+            while(trackGroup.children.length > 0) trackGroup.remove(trackGroup.children[0]);
+            while(sceneryGroup.children.length > 0) sceneryGroup.remove(sceneryGroup.children[0]);
+
+            // Cria chão infinito base (Grama)
+            const grass = new THREE.Mesh(
+                new THREE.PlaneGeometry(200, 200),
+                new THREE.MeshStandardMaterial({ color: COLORS.grass, roughness: 0.8 })
+            );
+            grass.rotation.x = -Math.PI / 2;
+            grass.position.y = -0.1;
+            grass.receiveShadow = true;
+            scene.add(grass);
+
+            // Cria Segmentos da Pista (Para dar a sensação de movimento e curva)
+            for(let i = 0; i < 40; i++) {
+                const segment = new THREE.Group();
+                segment.position.z = -i * 5;
+
+                // Asfalto
+                const road = new THREE.Mesh(
+                    new THREE.PlaneGeometry(10, 5),
+                    new THREE.MeshStandardMaterial({ color: COLORS.road, roughness: 0.6 })
+                );
+                road.rotation.x = -Math.PI / 2;
+                road.receiveShadow = true;
+                segment.add(road);
+
+                // Zebras (Branco e Vermelho alternado)
+                const isRed = i % 2 === 0;
+                const zebraMat = isRed ? mats.red : mats.white;
+                
+                const zEsq = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 5), zebraMat);
+                zEsq.rotation.x = -Math.PI / 2;
+                zEsq.position.set(-5.4, 0.01, 0);
+                segment.add(zEsq);
+                
+                const zDir = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 5), zebraMat);
+                zDir.rotation.x = -Math.PI / 2;
+                zDir.position.set(5.4, 0.01, 0);
+                segment.add(zDir);
+
+                // Adicionar Arquibancada e Torcida nas laterais de vez em quando
+                if (i % 8 === 0) {
+                    const tribuneL = buildTribune();
+                    tribuneL.position.set(-10, 0, 0);
+                    segment.add(tribuneL);
+
+                    const tribuneR = buildTribune();
+                    tribuneR.position.set(10, 0, 0);
+                    tribuneR.rotation.y = Math.PI; // Vira para a pista
+                    segment.add(tribuneR);
+                }
+
+                trackGroup.add(segment);
+            }
+            scene.add(trackGroup);
+            scene.add(sceneryGroup);
+        }
+
+        // Constrói uma arquibancada com torcedores
+        function buildTribune() {
+            const grp = new THREE.Group();
+            
+            // Degraus (Dobramos o tamanho Z de 4 para 8 para caber mais gente)
+            const mGrey = mats.grey;
+            const degrau1 = createLegoBrick(3, 0.5, 8, mGrey, 4, 16);
+            degrau1.position.set(0, 0.25, 0);
+            grp.add(degrau1);
+
+            const degrau2 = createLegoBrick(2, 0.5, 8, mGrey, 2, 16);
+            degrau2.position.set(-0.5, 0.75, 0);
+            grp.add(degrau2);
+
+            const degrau3 = createLegoBrick(1, 0.5, 8, mGrey, 1, 16);
+            degrau3.position.set(-1, 1.25, 0);
+            grp.add(degrau3);
+
+            // Adiciona Torcedores aleatórios
+            const matsTorcida = [mats.red, mats.blue, mats.yellow, mats.green, mats.white];
+            for(let i=0; i<3; i++) {
+                for(let j=0; j<8; j++) {
+                    if(Math.random() > 0.1) { // 90% de chance de ter torcedor (antes era 30%)
+                        const matCorpo = matsTorcida[Math.floor(Math.random() * matsTorcida.length)];
+                        // Corpo (bloco 1x1)
+                        const corpo = createLegoBrick(0.5, 0.6, 0.5, matCorpo, 1, 1);
+                        // Cabeça (cilindro amarelo)
+                        const cabeca = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 8), mats.yellow);
+                        cabeca.position.y = 0.5;
+                        
+                        const torcedor = new THREE.Group();
+                        torcedor.add(corpo);
+                        torcedor.add(cabeca);
+                        
+                        // Posiciona nos degraus espaçados adequadamente
+                        torcedor.position.set(
+                            0.5 - (i * 0.5), 
+                            0.8 + (i * 0.5), 
+                            -3.5 + j
+                        );
+                        
+                        // Guarda um Y base para animação de pulo
+                        torcedor.userData = { baseY: torcedor.position.y, jumpOffset: Math.random() * Math.PI * 2 };
+                        
+                        grp.add(torcedor);
+                    }
+                }
+            }
+            return grp;
+        }
+
+        function spawnObstacle() {
+            if(!gameActive) return;
+            const enemyMats = [mats.blue, mats.yellow, mats.green, mats.black, mats.grey];
+            const randomMat = enemyMats[Math.floor(Math.random() * enemyMats.length)];
+            
+            const enemy = buildF1Car(randomMat);
+            // Posição X aleatória na pista
+            const posX = (Math.random() - 0.5) * roadLimit * 2;
+            enemy.position.set(posX, 0, -150);
+            
+            // Caixa de colisão exata baseada nos objetos 3D
+            const box = new THREE.Box3();
+            enemy.userData = { box: box, speed: speed * 0.6 + (Math.random() * 0.2) }; 
+            
+            obstaclesGroup.add(enemy);
+        }
+
+        function spawnItem() {
+            if(!gameActive) return;
+            const types = ['boost', 'invincible', 'slow'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            const itemGroup = new THREE.Group();
+            
+            if (type === 'boost') {
+                const brick = createLegoBrick(0.8, 0.8, 0.8, mats.blue, 2, 2);
+                itemGroup.add(brick);
+            } else if (type === 'invincible') {
+                const brick = createLegoBrick(0.8, 0.8, 0.8, mats.yellow, 2, 2);
+                itemGroup.add(brick);
+            } else if (type === 'slow') {
+                // Placa preta achatada simulando poça de óleo
+                const oil = createLegoBrick(1.5, 0.1, 1.5, mats.black, 4, 4);
+                itemGroup.add(oil);
+            }
+
+            const posX = (Math.random() - 0.5) * roadLimit * 2;
+            itemGroup.position.set(posX, type === 'slow' ? 0.05 : 1, -150);
+            
+            const box = new THREE.Box3();
+            itemGroup.userData = { type: type, box: box, startY: itemGroup.position.y };
+            
+            itemsGroup.add(itemGroup);
+        }
+
+        function createExplosion(position) {
+            const colors = [COLORS.red, COLORS.white, COLORS.black, COLORS.grey];
+            for(let i=0; i<15; i++) {
+                const mat = new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random()*colors.length)] });
+                const brick = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), mat);
+                brick.position.copy(position);
+                brick.position.y += Math.random();
+                brick.position.x += (Math.random() - 0.5);
+                brick.position.z += (Math.random() - 0.5);
+                
+                // Velocidade de explosão
+                brick.userData = {
+                    vx: (Math.random() - 0.5) * 0.8,
+                    vy: Math.random() * 0.8 + 0.2,
+                    vz: (Math.random() - 0.5) * 0.8,
+                    rotX: Math.random() * 0.2,
+                    rotY: Math.random() * 0.2,
+                    life: 1.0 // Tempo de vida da partícula
+                };
+                
+                particlesGroup.add(brick);
+            }
+        }
+
+        // ---------------- CONTROLES ----------------
+        const keys = { ArrowLeft: false, ArrowRight: false, a: false, d: false, ArrowUp: false, ArrowDown: false, w: false, s: false };
+        let touchLeft = false;
+        let touchRight = false;
+        let touchAccel = false;
+        let touchBrake = false;
+
+        function initControls() {
+            window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+            window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+            // Botões Mobile
+            const btnL = document.getElementById('btn-left');
+            const btnR = document.getElementById('btn-right');
+            const btnA = document.getElementById('btn-accel');
+            const btnB = document.getElementById('btn-brake');
+
+            const addTouch = (btn, vr, val) => {
+                btn.addEventListener('touchstart', (e) => { e.preventDefault(); window[vr] = val; });
+                btn.addEventListener('touchend', (e) => { e.preventDefault(); window[vr] = !val; });
+                // Suporte a mouse para testar os botões da tela no PC
+                btn.addEventListener('mousedown', () => window[vr] = val);
+                btn.addEventListener('mouseup', () => window[vr] = !val);
+                btn.addEventListener('mouseleave', () => window[vr] = !val);
+            };
+
+            addTouch(btnL, 'touchLeft', true);
+            addTouch(btnR, 'touchRight', true);
+            addTouch(btnA, 'touchAccel', true);
+            addTouch(btnB, 'touchBrake', true);
+        }
+
+        // ---------------- LÓGICA PRINCIPAL ----------------
+        function update() {
+            if (!gameActive) {
+                // Atualiza animação das explosões mesmo no Game Over
+                updateParticles();
+                renderer.render(scene, camera);
+                return;
+            }
+
+            // --- Lógica de Aceleração e Freio ---
+            let isAccelerating = keys.ArrowUp || keys.w || touchAccel;
+            let isBraking = keys.ArrowDown || keys.s || touchBrake;
+
+            if (activeBuff === 'boost') {
+                targetSpeed = 1.0; // Velocidade máxima absurda no Nitro
+            } else if (activeBuff === 'slow') {
+                targetSpeed = 0.1; // Muito devagar na poça de óleo
+            } else {
+                if (isAccelerating) targetSpeed = maxSpeed;
+                else if (isBraking) targetSpeed = minSpeed;
+                else targetSpeed = cruiseSpeed; // Soltou tudo, volta pra velocidade base
+            }
+
+            // Interpolação suave da velocidade real em direção à velocidade alvo
+            speed += (targetSpeed - speed) * 0.05;
+
+            // Pontuação: Sobe baseado na distância percorrida (velocidade)
+            score += speed * 0.5;
+            
+            // HUD
+            document.getElementById('score-display').innerText = `PONTOS: ${Math.floor(score)}`;
+            document.getElementById('speed-display').innerText = `${Math.floor(speed * 200)} KM/H`;
+
+            // Atualiza pitch do motor
+            if (isAudioReady) {
+                const engineFreq = 40 + (speed * 150);
+                engineSynth.frequency.rampTo(engineFreq, 0.1);
+            }
+
+            // --- Movimento Lateral ---
+            let moveX = 0;
+            const turnSpeed = 0.15;
+            if (keys.ArrowLeft || keys.a || touchLeft) moveX = -turnSpeed;
+            if (keys.ArrowRight || keys.d || touchRight) moveX = turnSpeed;
+            
+            // O óleo deixa o carro escorregadio
+            if (activeBuff === 'slow') moveX *= 0.3; 
+
+            carX += moveX;
+            // Limites da pista
+            if (carX > roadLimit) carX = roadLimit;
+            if (carX < -roadLimit) carX = -roadLimit;
+            
+            playerCar.position.x = carX;
+            
+            // Inclina o carro levemente ao virar
+            playerCar.rotation.z = -moveX * 1.5;
+            playerCar.rotation.y = -moveX * 0.5;
+
+            // --- Efeito Visual de Velocidade na Câmera ---
+            // Quando mais rápido, maior o Field of View (FOV)
+            const targetFOV = 60 + (speed * 30);
+            camera.fov += (targetFOV - camera.fov) * 0.1;
+            camera.updateProjectionMatrix();
+
+            // --- Lógica de Curvas da Pista ---
+            curveTimer += speed;
+            if (curveTimer > 100) {
+                curveTimer = 0;
+                // Sorteia nova curva: -1 (esq), 0 (reta), 1 (dir)
+                targetCurve = Math.floor(Math.random() * 3) - 1;
+            }
+            
+            // Suaviza a transição da curva
+            currentCurve += (targetCurve - currentCurve) * 0.02;
+            
+            // A câmera inclina um pouco na curva e translada pra acompanhar a pista
+            cameraOffset += (currentCurve * 2 - cameraOffset) * 0.05;
+            camera.position.x = cameraOffset;
+            camera.lookAt(cameraOffset, 2, -10);
+
+            // Animação da pista infinita e curvatura
+            trackGroup.children.forEach((segment, index) => {
+                segment.position.z += speed;
+                
+                // Deslocamento X para simular a curva baseada na profundidade (z)
+                // Quanto mais longe (menor Z), mais deslocado
+                let dist = Math.abs(segment.position.z) / 10;
+                segment.position.x = currentCurve * (dist * dist) * 0.5;
+
+                // Reposiciona o segmento no fim da fila
+                if (segment.position.z > 5) {
+                    segment.position.z -= 200; // 40 segmentos * 5
+                }
+
+                // Anima a torcida pulando!
+                segment.children.forEach(child => {
+                    if (child.children.length > 2) { // É uma arquibancada
+                        child.children.forEach(item => {
+                            if (item.userData && item.userData.baseY !== undefined) {
+                                // Torcedores pulam mais rápido se a velocidade for maior
+                                item.position.y = item.userData.baseY + Math.abs(Math.sin(Date.now() * 0.005 * speed + item.userData.jumpOffset)) * 0.3;
+                            }
+                        });
+                    }
+                });
+            });
+
+            // Atualiza Bounding Box do Player para Colisão
+            const playerBox = new THREE.Box3().setFromObject(playerCar);
+            // Reduz levemente a caixa para ser mais justo no gameplay
+            playerBox.expandByScalar(-0.1); 
+
+            // --- Obstáculos ---
+            for(let i = obstaclesGroup.children.length - 1; i >= 0; i--) {
+                const obs = obstaclesGroup.children[i];
+                // Obstáculo se move em relação à pista e à sua própria velocidade
+                obs.position.z += (speed - obs.userData.speed);
+                
+                // Curva do obstáculo (Segue a pista)
+                let dist = Math.abs(obs.position.z) / 10;
+                if (obs.userData.baseX === undefined) obs.userData.baseX = obs.position.x; // Guarda a posição original ANTES de calcular
+                obs.position.x = obs.userData.baseX + (currentCurve * (dist * dist) * 0.5);
+
+                obs.userData.box.setFromObject(obs);
+
+                // Checa Colisão
+                if (playerBox.intersectsBox(obs.userData.box)) {
+                    if (activeBuff === 'invincible') {
+                        // Bônus: Destrói o inimigo
+                        createExplosion(obs.position);
+                        if (isAudioReady) {
+                            noiseSynth.triggerAttackRelease("16n"); 
+                            sfxSynth.triggerAttackRelease("C6", "16n");
+                        }
+                        score += 500; 
+                        obstaclesGroup.remove(obs);
+                        continue;
+                    } else {
+                        gameOver();
+                        return; // Para o update
+                    }
+                }
+
+                // Remove se passou da câmera
+                if (obs.position.z > 10) {
+                    obstaclesGroup.remove(obs);
+                    score += 50; // Pontos por ultrapassar
+                }
+            }
+
+            // --- Itens (Buffs/Debuffs) ---
+            for(let i = itemsGroup.children.length - 1; i >= 0; i--) {
+                const item = itemsGroup.children[i];
+                item.position.z += speed;
+                
+                // Curva do item
+                let dist = Math.abs(item.position.z) / 10;
+                if (item.userData.baseX === undefined) item.userData.baseX = item.position.x;
+                item.position.x = item.userData.baseX + (currentCurve * (dist * dist) * 0.5);
+
+                // Rotação/Flutuação
+                if(item.userData.type !== 'slow') {
+                    item.rotation.y += 0.05;
+                    item.position.y = item.userData.startY + Math.sin(Date.now() * 0.005) * 0.2;
+                }
+
+                item.userData.box.setFromObject(item);
+
+                if (playerBox.intersectsBox(item.userData.box)) {
+                    activeBuff = item.userData.type;
+                    buffTimer = 300; // Duração (~5 segundos a 60fps)
+                    
+                    const buffDisplay = document.getElementById('buff-display');
+                    buffDisplay.classList.remove('hidden');
+                    
+                    const pCar = document.getElementById('game-canvas'); // Efeito CSS
+                    pCar.classList.add('buff-active');
+
+                    if (activeBuff === 'boost') {
+                        buffDisplay.innerText = "⚡ NITRO ⚡";
+                        buffDisplay.className = "text-xl md:text-2xl mt-1 text-blue-400";
+                        createExplosion(item.position);
+                        if (isAudioReady) sfxSynth.triggerAttackRelease(["C5", "E5", "G5", "C6"], "8n");
+                    } else if (activeBuff === 'invincible') {
+                        buffDisplay.innerText = "⭐ DESTRUIDOR ⭐";
+                        buffDisplay.className = "text-xl md:text-2xl mt-1 text-yellow-400";
+                        createExplosion(item.position);
+                        if (isAudioReady) sfxSynth.triggerAttackRelease(["G4", "B4", "D5", "G5"], "4n");
+                    } else if (activeBuff === 'slow') {
+                        buffDisplay.innerText = "🛢️ ÓLEO! 🛢️";
+                        buffDisplay.className = "text-xl md:text-2xl mt-1 text-black";
+                        buffTimer = 100; // Óleo passa mais rápido
+                        pCar.classList.remove('buff-active'); // Sem piscar no óleo
+                        if (isAudioReady) sfxSynth.triggerAttackRelease(["C4", "G3", "C3"], "4n");
+                    }
+
+                    itemsGroup.remove(item);
+                }
+
+                if (item.position.z > 10) itemsGroup.remove(item);
+            }
+
+            // Gerencia Tempo do Buff
+            if (activeBuff) {
+                buffTimer--;
+                if (buffTimer <= 0) {
+                    activeBuff = null;
+                    document.getElementById('buff-display').classList.add('hidden');
+                    document.getElementById('game-canvas').classList.remove('buff-active');
+                }
+            }
+
+            updateParticles();
+
+            // Spawners baseados na distância percorrida
+            if (Math.random() < 0.02 * speed) spawnObstacle();
+            if (Math.random() < 0.005 * speed) spawnItem();
+
+            renderer.render(scene, camera);
+        }
+
+        function updateParticles() {
+            // Anima Explosões de Legos
+            for(let i = particlesGroup.children.length - 1; i >= 0; i--) {
+                const p = particlesGroup.children[i];
+                p.position.x += p.userData.vx;
+                p.position.y += p.userData.vy;
+                p.position.z += p.userData.vz;
+                p.rotation.x += p.userData.rotX;
+                p.rotation.y += p.userData.rotY;
+                
+                // Gravidade simulada
+                p.userData.vy -= 0.05;
+                if(p.position.y < 0) {
+                    p.position.y = 0;
+                    p.userData.vy *= -0.5; // Quica no chão
+                }
+
+                // Tempo de vida e encolhimento para não travar a tela
+                p.userData.life -= 0.02;
+                if (p.userData.life < 0.5) {
+                    p.scale.multiplyScalar(0.9); // Encolhe até sumir
+                }
+
+                if(p.userData.life <= 0 || p.scale.x < 0.01) {
+                    particlesGroup.remove(p);
+                }
+            }
+        }
+
+        function gameLoop() {
+            update();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            gameActive = false;
+            
+            // Desliga motor e toca sons de batida
+            if (isAudioReady) {
+                try {
+                    engineSynth.triggerRelease();
+                    noiseSynth.triggerAttackRelease("2n"); // Som longo de explosão
+                    setTimeout(() => {
+                        sfxSynth.triggerAttackRelease(["C4", "G3", "C3"], "2n");
+                    }, 400);
+                } catch(e) {}
+            }
+
+            // Efeito visual de quebra
+            playerCar.visible = false;
+            createExplosion(playerCar.position);
+            
+            document.getElementById('game-canvas').classList.remove('buff-active');
+            
+            setTimeout(() => {
+                document.getElementById('game-over-screen').classList.remove('hidden');
+                document.getElementById('final-score').innerText = `PONTOS: ${Math.floor(score)}`;
+                document.getElementById('mobile-controls').classList.add('hidden');
+            }, 1000);
+        }
+
+        async function startGame() {
+            // Inicia AudioContext do navegador (Obrigatório fazer em um evento de clique do usuário)
+            try {
+                await Tone.start();
+                initAudio();
+            } catch (error) {
+                console.warn("Tone.js start block", error);
+            }
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            
+            // Liga o motor!
+            if (isAudioReady) {
+                try {
+                    sfxSynth.triggerAttackRelease("C5", "8n");
+                    engineSynth.triggerAttack(50); 
+                } catch(e) {}
+            }
+
+            // Reseta Variáveis
+            score = 0;
+            speed = cruiseSpeed;
+            targetSpeed = cruiseSpeed;
+            carX = 0;
+            currentCurve = 0;
+            targetCurve = 0;
+            cameraOffset = 0;
+            curveTimer = 0;
+            activeBuff = null;
+            buffTimer = 0;
+            document.getElementById('buff-display').classList.add('hidden');
+            
+            // Limpa grupos
+            while(obstaclesGroup.children.length > 0) obstaclesGroup.remove(obstaclesGroup.children[0]);
+            while(itemsGroup.children.length > 0) itemsGroup.remove(itemsGroup.children[0]);
+            while(particlesGroup.children.length > 0) particlesGroup.remove(particlesGroup.children[0]);
+
+            buildTrack(); // Reconstrói a pista com a torcida limpa
+            
+            // Recria o carro com a cor selecionada pelo jogador
+            scene.remove(playerCar);
+            playerCar = buildF1Car(mats[playerSelectedColor]);
+            scene.add(playerCar);
+
+            playerCar.position.set(0, 0, -5);
+            playerCar.rotation.set(0,0,0);
+            playerCar.visible = true;
+            
+            // Mostra controles mobile
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+                document.getElementById('mobile-controls').classList.remove('hidden');
+            }
+
+            gameActive = true;
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Névoa esconde o fim da pista
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 3, 2);
+            camera.lookAt(0, 0, -10);
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Luzes para o visual Lego
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 30, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 100;
+            dirLight.shadow.camera.left = -20;
+            dirLight.shadow.camera.right = 20;
+            dirLight.shadow.camera.top = 20;
+            dirLight.shadow.camera.bottom = -20;
+            scene.add(dirLight);
+
+            // Monta Cena
+            playerCar = buildF1Car(mats.red);
+            scene.add(playerCar);
+            
+            scene.add(obstaclesGroup);
+            scene.add(itemsGroup);
+            scene.add(particlesGroup);
+
+            buildTrack();
+            initControls();
+
+            // Responsividade
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // Primeira Renderização Estática de Fundo
+            renderer.render(scene, camera);
+            gameLoop();
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
